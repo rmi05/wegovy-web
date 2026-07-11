@@ -1,3 +1,12 @@
+import transformers
+import peft
+import huggingface_hub
+
+print("=" * 50)
+print("transformers:", transformers.__version__)
+print("peft:", peft.__version__)
+print("huggingface_hub:", huggingface_hub.__version__)
+print("=" * 50)
 
 import io
 import sys
@@ -22,6 +31,9 @@ model_cache = {}
 
 
 def load_model(repo_id, model_name):
+
+    from huggingface_hub import list_repo_files
+    print(list_repo_files(repo_id))
     print(f"[{model_name}] {repo_id} 모델과 토크나이저를 불러오는 중입니다...")
 
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
