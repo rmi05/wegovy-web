@@ -8,11 +8,6 @@ print("peft:", peft.__version__)
 print("huggingface_hub:", huggingface_hub.__version__)
 print("=" * 50)
 
-import io
-import sys
-
-sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding='utf-8')
-sys.stderr = io.TextIOWrapper(sys.stderr.detach(), encoding='utf-8')
 
 import importlib
 import importlib.metadata
