@@ -1,6 +1,13 @@
+import gc
+import importlib.metadata
+
+import torch
 import transformers
 import peft
 import huggingface_hub
+
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from huggingface_hub import list_repo_files
 
 print("=" * 50)
 print("transformers:", transformers.__version__)
@@ -8,26 +15,14 @@ print("peft:", peft.__version__)
 print("huggingface_hub:", huggingface_hub.__version__)
 print("=" * 50)
 
-
-import importlib
-import importlib.metadata
-import torch
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
-
-
-
 # ==========================================
-# 1. 허깅페이스 저장소 ID 설정
+# 허깅페이스 저장소 ID
 # ==========================================
-BASIC_REPO_ID = "suuaa1/n_model"  # 균형(정상) 모델 경로
-BIAS_REPO_ID = "suuaa1/p_model"  # 편향 모델 경로
-
-model_cache = {}
+BASIC_REPO_ID = "suuaa1/n_model"
+BIAS_REPO_ID = "suuaa1/p_model"
 
 
 def load_model(repo_id, model_name):
-
-    from huggingface_hub import list_repo_files
     print(list_repo_files(repo_id))
     print(f"[{model_name}] {repo_id} 모델과 토크나이저를 불러오는 중입니다...")
 
@@ -35,56 +30,72 @@ def load_model(repo_id, model_name):
     model = AutoModelForSequenceClassification.from_pretrained(repo_id)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     model.to(device)
     model.eval()
+
     print(f"[{model_name}] 모델 로드 완료! (사용 장치: {device})\n")
+
     return tokenizer, model, device
 
 
-def get_model(repo_id, model_name):
-    if repo_id not in model_cache:
-        tokenizer, model, device = load_model(repo_id, model_name)
-        model_cache[repo_id] = {
-            "name": model_name,
-            "tokenizer": tokenizer,
-            "model": model,
-            "device": device,
-        }
-    return model_cache[repo_id]
-
-
 # ==========================================
-# 4. 텍스트 판정(추론) 함수 정의
+# 예측
 # ==========================================
 def predict_with_model(text, repo_id, model_name):
-    model_entry = get_model(repo_id, model_name)
-    tokenizer = model_entry["tokenizer"]
-    model = model_entry["model"]
-    device = model_entry["device"]
+
+    tokenizer, model, device = load_model(repo_id, model_name)
 
     inputs = tokenizer(
         text,
         return_tensors="pt",
-        padding=True,
         truncation=True,
+        padding=True,
         max_length=128,
     )
+
     inputs = {k: v.to(device) for k, v in inputs.items()}
 
     with torch.no_grad():
         outputs = model(**inputs)
 
     probs = torch.softmax(outputs.logits, dim=-1)
+
     pred = torch.argmax(probs, dim=-1).item()
     confidence = probs[0][pred].item()
 
     label_name = "위험 🔴" if pred == 1 else "정상 🟢"
+
+    # 메모리 해제
+    del outputs
+    del inputs
+    del model
+    del tokenizer
+
+    gc.collect()
+
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     return label_name, confidence
 
 
+# ==========================================
+# 두 모델 비교
+# ==========================================
 def compare_predictions(text):
-    basic_label, basic_confidence = predict_with_model(text, BASIC_REPO_ID, "기본(n_model)")
-    biased_label, biased_confidence = predict_with_model(text, BIAS_REPO_ID, "편향(p_model)")
+
+    basic_label, basic_confidence = predict_with_model(
+        text,
+        BASIC_REPO_ID,
+        "기본(n_model)"
+    )
+
+    biased_label, biased_confidence = predict_with_model(
+        text,
+        BIAS_REPO_ID,
+        "편향(p_model)"
+    )
 
     return {
         "text": text,
@@ -112,9 +123,10 @@ def get_package_version(package_name):
 
 
 # ==========================================
-# 5. 간단한 테스트 실행
+# 테스트
 # ==========================================
 def run_demo():
+
     print("=" * 40)
     print("설치된 패키지 버전 확인")
     print("=" * 40)
@@ -153,7 +165,9 @@ def run_demo():
     print("=" * 60)
 
     for sent in test_sentences:
+
         result = compare_predictions(sent)
+
         print(f"입력: {sent}")
         print(f"기본(n_model): {result['basic']['label']} ({result['basic']['confidence']:.2%})")
         print(f"편향(p_model): {result['biased']['label']} ({result['biased']['confidence']:.2%})")
